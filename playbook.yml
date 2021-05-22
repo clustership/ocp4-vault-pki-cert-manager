@@ -1,0 +1,66 @@
+---
+- name: Deploy vault PKI with certmanager
+  hosts: localhost
+  environment:
+    PATH: "/usr/bin/:/usr/local/bin/:{{ ansible_env.PATH }}"
+  vars:
+    cluster_name: bobocp4
+
+  vars_files:
+  - ./vars.yml
+
+  tasks:
+
+  #
+  # prerequisites: prepare-environment
+  #
+  - name: Add hashicorp helm repository
+    command: helm repo add hashicorp https://helm.releases.hashicorp.com
+    tags: prepare-environment
+
+  - name: Update helm repository index
+    command: helm repo update
+    tags: prepare-environment
+
+  - name: Create {{ vault_pki_namespace }} namespace
+    command: oc new-project {{ vault_pki_namespace }}
+    tags: prepare-environment
+    ignore_errors: true
+
+  - name: Set project {{ vault_pki_namespace }} as default namespace
+    command: oc project {{ vault_pki_namespace }}
+    tags: deploy
+
+#  - name: Deploy vault helm chart in {{ vault_pki_namespace }} namespace
+#    command: helm install vault hashicorp/vault --set "injector.enabled=false" --set "global.openshift=true" --set "server.dataStorage.size={{ vault_storage_size }}"
+#    tags: deploy
+
+  - name: Deploy vault helm chart in {{ vault_pki_namespace }} namespace
+    community.kubernetes.helm:
+      name: vault
+      chart_ref: hashicorp/vault
+      release_namespace: "{{ vault_pki_namespace }}"
+      values:
+        injector.enabled: false
+        global.openshift: true
+        server.dataStorage.size: "{{ vault_storage_size }}"
+    tags: deploy
+
+
+  - name: Initialize vault
+    block:
+      - name: Create temporary directory for vault init
+        tempfile:
+          state: directory
+        register: vault_init_dir
+
+      - name: Initialize vault
+        ansible.builtin.shell:
+          cmd: |
+            oc exec vault-0 -- vault operator init -key-shares=1 -key-threshold=1 \
+              -format=json > init-keys.json
+          chdir: "{{ vault_init_dir.path }}"
+          creates: init-keys.json
+    tags: init-vault
+
+  

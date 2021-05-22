@@ -1,0 +1,2 @@
+vault_pki_namespace: vault-pki
+vault_storage_size: 512Mi
